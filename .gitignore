@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Models — DO NOT PUT THE 4GB BRAIN IN GIT 😆
+*.gguf
+*.safetensors
+*.bin
+node_modules/
+
+# Logs / runtime junk
+*.log
+logs/
+tmp/
+temp/
+*.pid
+
+# Local databases / state
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+
+# Backups
+*.bak
+*.swp
+*~
+
+# Sable runtime state
+history/
+cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Node build / cache
+dist/
+.npm/
+.eslintcache
+
+# Backups
+*.bak
+*_bck
+*.swp
+*~

@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Sable Web</title>
+    </head>
+    <body>
+        <h1>Sable Web UI</h1>
+        <input id="prompt" type="text" placeholder="Say something..." />
+        <button onclick="askSable()">Ask</button>
+        <pre id="response"></pre>
+
+        <script>
+            async function askSable() {
+                const prompt = document.getElementById("prompt").value;
+                const res = await fetch("/ask", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt }),
+                });
+                const data = await res.json();
+                document.getElementById("response").innerText =
+                    data.response || "No response";
+            }
+        </script>
+    </body>
+</html>
+
