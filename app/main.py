@@ -7,7 +7,23 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SYSTEM_PROMPT_FILE = BASE_DIR / "config" / "system-prompt.txt"
+
+
+CONFIG_DIR = BASE_DIR / "config"
+
+PROMPT_FILES = [
+    "system-prompt.txt",
+    "identity.txt",
+    "purpose.txt",
+    "values.txt",
+    "personality.txt",
+    "communication.txt",
+    "engineering.txt",
+    "reasoning.txt",
+    "humor.txt",
+    "relationship.txt",
+    "memory-rules.txt",
+]
 
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
