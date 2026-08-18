@@ -50,9 +50,23 @@ async def home(request: Request):
     )
 
 
+def load_system_prompt():
+    sections = []
+
+    for filename in PROMPT_FILES:
+        prompt_file = CONFIG_DIR / filename
+        content = prompt_file.read_text(encoding="utf-8").strip()
+
+        if content:
+            section_name = prompt_file.stem.upper()
+            sections.append(f"## {section_name}\n{content}")
+
+    return "\n\n".join(sections)
+
+
 @app.post("/api/chat")
 async def chat(chat_request: ChatRequest):
-    system_prompt = SYSTEM_PROMPT_FILE.read_text().strip()
+    system_prompt = load_system_prompt()
 
     messages = [
         {
@@ -88,3 +102,20 @@ async def chat(chat_request: ChatRequest):
         "reply": reply,
         "user_id": USER_ID,
     }
+
+def load_system_prompt():
+    sections = []
+
+    for filename in PROMPT_FILES:
+        prompt_file = CONFIG_DIR / filename
+
+        if not prompt_file.exists():
+            raise FileNotFoundError(f"Missing prompt module: {prompt_file}")
+
+        content = prompt_file.read_text(encoding="utf-8").strip()
+
+        if content:
+            section_name = prompt_file.stem.upper()
+            sections.append(f"## {section_name}\n{content}")
+
+    return "\n\n".join(sections)
