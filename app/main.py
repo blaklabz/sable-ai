@@ -72,7 +72,7 @@ async def chat(chat_request: ChatRequest):
 
     memories = retrieve_memories(
         chat_request.message,
-        limit=5,
+        limit=3,
     )
 
     memory_context = build_memory_context(memories)

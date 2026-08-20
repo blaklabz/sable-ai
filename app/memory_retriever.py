@@ -1,21 +1,20 @@
 import os
+from typing import Any
 
 from sentence_transformers import SentenceTransformer
 
 from app.db import get_connection
 
+
 EMBEDDING_MODEL = os.getenv(
-
     "SABLE_EMBEDDING_MODEL",
-
     "/home/nixy/models/embeddings/bge-small-en-v1.5",
-
 )
 
-_model = None
+_model: SentenceTransformer | None = None
 
 
-def get_embedding_model():
+def get_embedding_model() -> SentenceTransformer:
     global _model
 
     if _model is None:
@@ -32,18 +31,17 @@ def embed_text(text: str) -> list[float]:
         normalize_embeddings=True,
     )
 
-    return embedding.tolist()
+    return [float(value) for value in embedding]
 
 
 def retrieve_memories(
     query: str,
-    limit: int = 5,
-) -> list[dict]:
+    limit: int = 3,
+    min_similarity: float = 0.55,
+) -> list[dict[str, Any]]:
     query_embedding = embed_text(query)
 
-    # pgvector accepts the textual representation:
-    # [0.123,-0.456,...]
-    vector = "[" + ",".join(str(x) for x in query_embedding) + "]"
+    vector = "[" + ",".join(str(value) for value in query_embedding) + "]"
 
     sql = """
         SELECT
@@ -70,10 +68,9 @@ def retrieve_memories(
                     limit,
                 ),
             )
-
             rows = cur.fetchall()
 
-    return [
+    memories = [
         {
             "id": row[0],
             "memory_type": row[1],
@@ -83,4 +80,10 @@ def retrieve_memories(
             "similarity": float(row[5]),
         }
         for row in rows
+    ]
+
+    return [
+        memory
+        for memory in memories
+        if memory["similarity"] >= min_similarity
     ]
