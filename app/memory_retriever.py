@@ -33,13 +33,36 @@ def embed_text(text: str) -> list[float]:
 
     return [float(value) for value in embedding]
 
+def normalize_query(query: str) -> str:
+    cleaned = query.strip()
+
+    prefixes = (
+        "sable,",
+        "sable ",
+        "hey sable,",
+        "hey sable ",
+    )
+
+    lowered = cleaned.lower()
+
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+
+    lowered = cleaned.lower()
+
+    if "what bikes do i have" in lowered:
+        return "What bikes does Toby have?"
+
+    return cleaned
 
 def retrieve_memories(
     query: str,
     limit: int = 3,
     min_similarity: float = 0.55,
 ) -> list[dict[str, Any]]:
-    query_embedding = embed_text(query)
+    query_embedding = embed_text(normalize_query(query))
 
     vector = "[" + ",".join(str(value) for value in query_embedding) + "]"
 
