@@ -4,6 +4,11 @@ set -e
 SABLE_DIR="$HOME/code/sable-ai"
 LLAMA_DIR="$HOME/node/llama.cpp/build/bin"
 UVICORN="/home/nixy/miniconda3/envs/sable/bin/uvicorn"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+set -a
+source "$SCRIPT_DIR/.env"
+set +a
 
 echo "Starting Sable's brain..."
 
