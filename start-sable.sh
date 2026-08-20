@@ -3,7 +3,7 @@ set -e
 
 SABLE_DIR="$HOME/code/sable-ai"
 LLAMA_DIR="$HOME/node/llama.cpp/build/bin"
-UVICORN="/home/nixy/miniconda3/bin/uvicorn"
+UVICORN="/home/nixy/miniconda3/envs/sable/bin/uvicorn"
 
 echo "Starting Sable's brain..."
 
