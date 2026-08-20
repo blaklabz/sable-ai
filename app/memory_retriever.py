@@ -1,9 +1,16 @@
+import os
+
 from sentence_transformers import SentenceTransformer
 
 from app.db import get_connection
 
+EMBEDDING_MODEL = os.getenv(
 
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+    "SABLE_EMBEDDING_MODEL",
+
+    "/home/nixy/models/embeddings/bge-small-en-v1.5",
+
+)
 
 _model = None
 
