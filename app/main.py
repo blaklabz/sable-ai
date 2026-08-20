@@ -1,4 +1,6 @@
 from pathlib import Path
+from app.memory_retriever import retrieve_memories
+
 
 import httpx
 from fastapi import FastAPI, Request
@@ -68,12 +70,27 @@ def load_system_prompt():
 async def chat(chat_request: ChatRequest):
     system_prompt = load_system_prompt()
 
+    memories = retrieve_memories(
+        chat_request.message,
+        limit=5,
+    )
+
+    memory_context = build_memory_context(memories)
+
     messages = [
         {
             "role": "system",
             "content": system_prompt,
         }
     ]
+
+    if memory_context:
+        messages.append(
+            {
+                "role": "system",
+                "content": memory_context,
+            }
+        )
 
     messages.extend(chat_request.history)
 
@@ -101,21 +118,17 @@ async def chat(chat_request: ChatRequest):
     return {
         "reply": reply,
         "user_id": USER_ID,
+        "memories_used": memories,
     }
 
-def load_system_prompt():
-    sections = []
 
-    for filename in PROMPT_FILES:
-        prompt_file = CONFIG_DIR / filename
+def build_memory_context(memories: list[dict]) -> str:
+    if not memories:
+        return ""
 
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Missing prompt module: {prompt_file}")
+    lines = ["## RELEVANT LONG-TERM MEMORY"]
 
-        content = prompt_file.read_text(encoding="utf-8").strip()
+    for memory in memories:
+        lines.append(f"- {memory['summary']}")
 
-        if content:
-            section_name = prompt_file.stem.upper()
-            sections.append(f"## {section_name}\n{content}")
-
-    return "\n\n".join(sections)
+    return "\n".join(lines)
