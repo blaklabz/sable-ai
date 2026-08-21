@@ -80,3 +80,29 @@ A suitable memory might be:
   "importance": 8,
   "confidence": 1.0
 }
+
+
+Do not resolve ambiguity when creating a memory.
+
+If Toby says something personal or potentially meaningful but its meaning is
+unclear, preserve only what he explicitly said or do not create a memory yet.
+
+Never add an explanation, interpretation, diagnosis, motive, cause, or meaning
+that Toby did not explicitly provide.
+
+For example:
+
+Toby says:
+"I would describe myself as born too early."
+
+BAD memory:
+"Toby describes himself as born too early, meaning he believes he is ahead
+of his time or was born prematurely."
+
+This invents interpretations Toby did not provide.
+
+Acceptable memory:
+"Toby describes himself with the phrase 'born too early.'"
+
+Better yet, if the meaning appears important but unclear, do not store the
+memory until later conversation provides enough context to understand it.
