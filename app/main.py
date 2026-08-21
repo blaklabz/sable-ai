@@ -195,7 +195,7 @@ Toby's message:
             },
         ],
         "temperature": 0.1,
-        "max_tokens": 1024,
+        "max_tokens": 1536,
         "stream": False,
     }
 
@@ -210,28 +210,49 @@ Toby's message:
 
     content = data["choices"][0]["message"]["content"].strip()
 
-    if "</think>" in content:
-        content = content.split("</think>", 1)[1].strip()
+```python
 
-    if content.startswith("```"):
-        content = content.strip("`").strip()
+if "</think>" in content:
 
-        if content.lower().startswith("json"):
-            content = content[4:].strip()
+    content = content.split("</think>", 1)[1].strip()
 
-    try:
-        result = json.loads(content)
-    except json.JSONDecodeError:
-        print(
-            "Memory extraction returned invalid JSON:",
-            content,
-        )
-        return None
+if content.startswith("```"):
 
-    if not result.get("remember"):
-        return None
+    content = content.strip("`").strip()
 
-    return result
+    if content.lower().startswith("json"):
+
+        content = content[4:].strip()
+
+content = content.strip()
+
+# Repair a JSON object that is only missing its final closing brace.
+
+if content.startswith("{") and content.count("{") == content.count("}") + 1:
+
+    content += "}"
+
+try:
+
+    result = json.loads(content)
+
+except json.JSONDecodeError:
+
+    print(
+
+        "Memory extraction returned invalid JSON:",
+
+        content,
+
+    )
+
+    return None
+
+if not result.get("remember"):
+
+    return None
+
+return result
 
 
 def save_extracted_memory(memory: dict) -> int | None:
