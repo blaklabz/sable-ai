@@ -88,7 +88,7 @@ You are Sable's long-term memory evaluator.
 Decide whether the following message from Toby contains information that
 would be useful to remember in future conversations.
 
-Only remember durable information such as:
+Only remember information that is likely to matter in future conversations, such as:
 - preferences
 - possessions
 - ongoing projects
@@ -97,14 +97,54 @@ Only remember durable information such as:
 - relationships
 - recurring habits
 - important personal context
+- meaningful personal stories and experiences
+- durable preferences about how Toby wants Sable to communicate or interact with him
+
+Meaningful personal stories and experiences should usually become episodic memories.
+
+A personal story is worth remembering when it reveals something lasting about Toby, such as:
+- how he became interested in something
+- an experience that shaped how he thinks
+- an important childhood or family experience
+- a meaningful success, failure, discovery, or lesson
+- an experience that helps explain his personality, interests, values, or behavior
+- a story involving an important relationship or period of his life
+
+A memory does not need to be currently actionable to be worth remembering.
+Some experiences matter because they are part of Toby's personal history.
+
+For example:
+
+Toby says:
+"When I was a kid I threw my toy planes out of a second-floor window because I thought they would glide. They broke, so that weekend I went to the library to learn what made planes fly."
+
+This SHOULD be remembered as an episodic memory because it is a meaningful childhood story that demonstrates Toby's curiosity and how an experiment led him to learn about flight.
+
+A suitable memory would be:
+
+{
+  "remember": true,
+  "memory_type": "episodic",
+  "subject": "Toby",
+  "predicate": "childhood_experience",
+  "object_text": "learning how airplanes fly",
+  "summary": "As a child, Toby threw his toy planes from a second-floor window expecting them to glide. After they broke, he went to the library to learn what makes airplanes fly.",
+  "importance": 7,
+  "confidence": 1.0
+}
 
 Do NOT remember:
 - ordinary questions
 - temporary status
 - casual greetings
-- commands
+- one-time commands or requests that only apply to the current interaction
+- routine daily events with no lasting significance
+- meals or activities that are only relevant today
 - information that is only relevant to the current conversation
 - facts invented or inferred beyond what Toby explicitly said
+
+Do not create an episodic memory merely because Toby described something that happened.
+An event should have some lasting personal, historical, emotional, relational, or explanatory value.
 
 Allowed memory_type values:
 - semantic
