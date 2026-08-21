@@ -122,7 +122,7 @@ This SHOULD be remembered as an episodic memory because it is a meaningful child
 
 A suitable memory would be:
 
-{
+{{
   "remember": true,
   "memory_type": "episodic",
   "subject": "Toby",
@@ -131,7 +131,7 @@ A suitable memory would be:
   "summary": "As a child, Toby threw his toy planes from a second-floor window expecting them to glide. After they broke, he went to the library to learn what makes airplanes fly.",
   "importance": 7,
   "confidence": 1.0
-}
+}}
 
 Do NOT remember:
 - ordinary questions
