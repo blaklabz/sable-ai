@@ -1,13 +1,10 @@
 import json
 from typing import Optional
 
-import psycopg
+from app.db import get_connection
 
 
 class MemoryStore:
-    def __init__(self, dsn: str):
-        self.dsn = dsn
-
     def store_memory(
         self,
         memory_type: str,
@@ -28,27 +25,31 @@ class MemoryStore:
         if metadata is None:
             metadata = {}
 
-        with psycopg.connect(self.dsn) as conn:
+        vector = "[" + ",".join(str(value) for value in embedding) + "]"
+
+        sql = """
+            INSERT INTO memories (
+                memory_type,
+                subject,
+                predicate,
+                object_text,
+                summary,
+                importance,
+                confidence,
+                embedding,
+                metadata
+            )
+            VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s::vector, %s::jsonb
+            )
+            RETURNING id
+        """
+
+        with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    INSERT INTO memories (
-                        memory_type,
-                        subject,
-                        predicate,
-                        object_text,
-                        summary,
-                        importance,
-                        confidence,
-                        embedding,
-                        metadata
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s::jsonb
-                    )
-                    RETURNING id
-                    """,
+                    sql,
                     (
                         memory_type,
                         subject,
@@ -57,7 +58,7 @@ class MemoryStore:
                         summary,
                         importance,
                         confidence,
-                        embedding,
+                        vector,
                         json.dumps(metadata),
                     ),
                 )
