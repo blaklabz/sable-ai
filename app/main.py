@@ -210,50 +210,35 @@ Toby's message:
 
     content = data["choices"][0]["message"]["content"].strip()
 
-```python
 
-if "</think>" in content:
+    if "</think>" in content:
+        content = content.split("</think>", 1)[1].strip()
 
-    content = content.split("</think>", 1)[1].strip()
+    if content.startswith("```"):
+        content = content.strip("`").strip()
 
-if content.startswith("```"):
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
 
-    content = content.strip("`").strip()
+    content = content.strip()
 
-    if content.lower().startswith("json"):
+    # Repair a JSON object that is only missing its final closing brace.
+    if content.startswith("{") and content.count("{") == content.count("}") + 1:
+        content += "}"
 
-        content = content[4:].strip()
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError:
+        print(
+            "Memory extraction returned invalid JSON:",
+            content,
+        )
+        return None
 
-content = content.strip()
+    if not result.get("remember"):
+        return None
 
-# Repair a JSON object that is only missing its final closing brace.
-
-if content.startswith("{") and content.count("{") == content.count("}") + 1:
-
-    content += "}"
-
-try:
-
-    result = json.loads(content)
-
-except json.JSONDecodeError:
-
-    print(
-
-        "Memory extraction returned invalid JSON:",
-
-        content,
-
-    )
-
-    return None
-
-if not result.get("remember"):
-
-    return None
-
-return result
-
+    return result
 
 def save_extracted_memory(memory: dict) -> int | None:
     summary = memory.get("summary", "").strip()
