@@ -170,6 +170,9 @@ Toby's message:
 
     content = data["choices"][0]["message"]["content"].strip()
 
+    if "</think>" in content:
+        content = content.split("</think>", 1)[1].strip()
+
     if content.startswith("```"):
         content = content.strip("`").strip()
 
