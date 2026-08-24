@@ -8,7 +8,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from app.logging_config import setup_logging, api_logger
+from app.logging_config import (
+    setup_logging,
+    api_logger,
+    llm_logger,
+    memory_logger,
+    prompt_logger,
+)
 from app.memory_retriever import retrieve_memories, embed_text
 from app.memory_store import MemoryStore
 
@@ -59,33 +65,79 @@ async def home(request: Request):
     )
 
 
-def load_system_prompt():
+def load_system_prompt() -> str:
     sections = []
+    loaded_files = []
 
     for filename in PROMPT_FILES:
         prompt_file = CONFIG_DIR / filename
-        content = prompt_file.read_text(encoding="utf-8").strip()
+
+        try:
+            content = prompt_file.read_text(
+                encoding="utf-8"
+            ).strip()
+        except Exception:
+            prompt_logger.exception(
+                "Failed loading prompt file=%s",
+                filename,
+            )
+            raise
 
         if content:
             section_name = prompt_file.stem.upper()
-            sections.append(f"## {section_name}\n{content}")
+            sections.append(
+                f"## {section_name}\n{content}"
+            )
+            loaded_files.append(filename)
 
-    return "\n\n".join(sections)
+    system_prompt = "\n\n".join(sections)
+
+    prompt_logger.info(
+        "System prompt loaded files=%d chars=%d file_names=%s",
+        len(loaded_files),
+        len(system_prompt),
+        ",".join(loaded_files),
+    )
+
+    return system_prompt
 
 
-def build_memory_context(memories: list[dict]) -> str:
+def build_memory_context(
+    memories: list[dict],
+) -> str:
     if not memories:
+        memory_logger.info(
+            "No memories injected into prompt"
+        )
         return ""
 
-    lines = ["## RELEVANT LONG-TERM MEMORY"]
+    lines = [
+        "## RELEVANT LONG-TERM MEMORY"
+    ]
 
     for memory in memories:
-        lines.append(f"- {memory['summary']}")
+        lines.append(
+            f"- {memory['summary']}"
+        )
 
-    return "\n".join(lines)
+    memory_context = "\n".join(lines)
+
+    memory_logger.info(
+        "Memory context built memories=%d chars=%d ids=%s",
+        len(memories),
+        len(memory_context),
+        ",".join(
+            str(memory.get("id", "unknown"))
+            for memory in memories
+        ),
+    )
+
+    return memory_context
 
 
-async def extract_memory(user_message: str) -> dict | None:
+async def extract_memory(
+    user_message: str,
+) -> dict | None:
     prompt = f"""
 You are Sable's long-term memory evaluator.
 
@@ -191,7 +243,10 @@ Toby's message:
         "messages": [
             {
                 "role": "system",
-                "content": "You extract structured long-term memories.",
+                "content": (
+                    "You extract structured "
+                    "long-term memories."
+                ),
             },
             {
                 "role": "user",
@@ -203,7 +258,17 @@ Toby's message:
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=300) as client:
+    llm_started = time.perf_counter()
+
+    llm_logger.info(
+        "Memory extraction started message_chars=%d prompt_chars=%d",
+        len(user_message),
+        len(prompt),
+    )
+
+    async with httpx.AsyncClient(
+        timeout=300
+    ) as client:
         response = await client.post(
             LLAMA_URL,
             json=payload,
@@ -212,42 +277,104 @@ Toby's message:
         response.raise_for_status()
         data = response.json()
 
-    content = data["choices"][0]["message"]["content"].strip()
+    llm_elapsed = (
+        time.perf_counter()
+        - llm_started
+    )
+
+    usage = data.get(
+        "usage",
+        {},
+    )
+
+    llm_logger.info(
+        "Memory extraction completed elapsed=%.3fs "
+        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        llm_elapsed,
+        usage.get("prompt_tokens"),
+        usage.get("completion_tokens"),
+        usage.get("total_tokens"),
+    )
+
+    content = (
+        data["choices"][0]["message"]["content"]
+        .strip()
+    )
 
     if "</think>" in content:
-        content = content.split("</think>", 1)[1].strip()
+        content = content.split(
+            "</think>",
+            1,
+        )[1].strip()
 
     if content.startswith("```"):
-        content = content.strip("`").strip()
+        content = (
+            content.strip("`")
+            .strip()
+        )
 
-        if content.lower().startswith("json"):
-            content = content[4:].strip()
+        if content.lower().startswith(
+            "json"
+        ):
+            content = content[
+                4:
+            ].strip()
 
     content = content.strip()
 
-    # Repair a JSON object that is only missing its final closing brace.
-    if content.startswith("{") and content.count("{") == content.count("}") + 1:
+    # Repair a JSON object that is only
+    # missing its final closing brace.
+    if (
+        content.startswith("{")
+        and content.count("{")
+        == content.count("}") + 1
+    ):
         content += "}"
 
     try:
-        result = json.loads(content)
+        result = json.loads(
+            content
+        )
     except json.JSONDecodeError:
-        print(
-            "Memory extraction returned invalid JSON:",
+        memory_logger.warning(
+            "Memory extraction returned invalid JSON content=%r",
             content,
         )
         return None
 
-    if not result.get("remember"):
+    if not result.get(
+        "remember"
+    ):
+        memory_logger.info(
+            "Memory evaluator rejected message remember=false"
+        )
         return None
+
+    memory_logger.info(
+        "Memory evaluator accepted memory "
+        "type=%s subject=%s predicate=%s importance=%s confidence=%s",
+        result.get("memory_type"),
+        result.get("subject"),
+        result.get("predicate"),
+        result.get("importance"),
+        result.get("confidence"),
+    )
 
     return result
 
 
-def save_extracted_memory(memory: dict) -> int | None:
-    summary = memory.get("summary", "").strip()
+def save_extracted_memory(
+    memory: dict,
+) -> int | None:
+    summary = memory.get(
+        "summary",
+        "",
+    ).strip()
 
     if not summary:
+        memory_logger.warning(
+            "Skipping extracted memory with empty summary"
+        )
         return None
 
     allowed_types = {
@@ -259,78 +386,168 @@ def save_extracted_memory(memory: dict) -> int | None:
         "plan",
     }
 
-    memory_type = memory.get("memory_type")
+    memory_type = memory.get(
+        "memory_type"
+    )
 
     if memory_type not in allowed_types:
-        print(
-            f"Skipping memory with invalid type: {memory_type}"
+        memory_logger.warning(
+            "Skipping memory with invalid type=%s",
+            memory_type,
         )
         return None
 
     try:
         importance = int(
-            memory.get("importance", 5)
+            memory.get(
+                "importance",
+                5,
+            )
         )
-    except (TypeError, ValueError):
+    except (
+        TypeError,
+        ValueError,
+    ):
         importance = 5
 
     importance = max(
         1,
-        min(10, importance),
+        min(
+            10,
+            importance,
+        ),
     )
 
     try:
         confidence = float(
-            memory.get("confidence", 1.0)
+            memory.get(
+                "confidence",
+                1.0,
+            )
         )
-    except (TypeError, ValueError):
+    except (
+        TypeError,
+        ValueError,
+    ):
         confidence = 1.0
 
     confidence = max(
         0.0,
-        min(1.0, confidence),
+        min(
+            1.0,
+            confidence,
+        ),
     )
 
-    embedding = embed_text(summary)
-
-    memory_id = memory_store.store_memory(
-        memory_type=memory_type,
-        subject=memory.get("subject"),
-        predicate=memory.get("predicate"),
-        object_text=memory.get("object_text"),
-        summary=summary,
-        importance=importance,
-        confidence=confidence,
-        embedding=embedding,
+    memory_logger.info(
+        "Generating embedding for memory summary_chars=%d",
+        len(summary),
     )
 
-    print(
-        f"Created memory {memory_id}: {summary}"
+    embedding_started = (
+        time.perf_counter()
+    )
+
+    embedding = embed_text(
+        summary
+    )
+
+    embedding_elapsed = (
+        time.perf_counter()
+        - embedding_started
+    )
+
+    memory_logger.info(
+        "Memory embedding generated elapsed=%.3fs dimensions=%d",
+        embedding_elapsed,
+        len(embedding),
+    )
+
+    memory_id = (
+        memory_store.store_memory(
+            memory_type=memory_type,
+            subject=memory.get(
+                "subject"
+            ),
+            predicate=memory.get(
+                "predicate"
+            ),
+            object_text=memory.get(
+                "object_text"
+            ),
+            summary=summary,
+            importance=importance,
+            confidence=confidence,
+            embedding=embedding,
+        )
+    )
+
+    memory_logger.info(
+        "Memory created id=%s type=%s importance=%d confidence=%.2f summary=%r",
+        memory_id,
+        memory_type,
+        importance,
+        confidence,
+        summary,
     )
 
     return memory_id
 
 
 @app.post("/api/chat")
-async def chat(chat_request: ChatRequest):
-    started = time.perf_counter()
+async def chat(
+    chat_request: ChatRequest,
+):
+    started = (
+        time.perf_counter()
+    )
 
     api_logger.info(
-        "Chat request received user_id=%s history_messages=%d message_chars=%d",
+        "Chat request received user_id=%s "
+        "history_messages=%d message_chars=%d",
         USER_ID,
         len(chat_request.history),
         len(chat_request.message),
     )
 
     try:
-        system_prompt = load_system_prompt()
-
-        memories = retrieve_memories(
-            chat_request.message,
-            limit=3,
+        system_prompt = (
+            load_system_prompt()
         )
 
-        memory_context = build_memory_context(memories)
+        memory_started = (
+            time.perf_counter()
+        )
+
+        memory_logger.info(
+            "Memory retrieval started query_chars=%d limit=%d",
+            len(chat_request.message),
+            3,
+        )
+
+        memories = (
+            retrieve_memories(
+                chat_request.message,
+                limit=3,
+            )
+        )
+
+        memory_elapsed = (
+            time.perf_counter()
+            - memory_started
+        )
+
+        memory_logger.info(
+            "Memory retrieval completed elapsed=%.3fs results=%d",
+            memory_elapsed,
+            len(memories),
+        )
+
+        memory_context = (
+            build_memory_context(
+                memories
+            )
+        )
 
         messages = [
             {
@@ -358,6 +575,29 @@ async def chat(chat_request: ChatRequest):
             }
         )
 
+        total_prompt_chars = sum(
+            len(
+                str(
+                    message.get(
+                        "content",
+                        "",
+                    )
+                )
+            )
+            for message in messages
+        )
+
+        prompt_logger.info(
+            "Chat prompt assembled messages=%d "
+            "system_chars=%d memory_chars=%d "
+            "history_messages=%d total_chars=%d",
+            len(messages),
+            len(system_prompt),
+            len(memory_context),
+            len(chat_request.history),
+            total_prompt_chars,
+        )
+
         payload = {
             "messages": messages,
             "temperature": 0.8,
@@ -365,7 +605,22 @@ async def chat(chat_request: ChatRequest):
             "stream": False,
         }
 
-        async with httpx.AsyncClient(timeout=300) as client:
+        llm_started = (
+            time.perf_counter()
+        )
+
+        llm_logger.info(
+            "Main generation started messages=%d "
+            "prompt_chars=%d temperature=%.1f max_tokens=%d",
+            len(messages),
+            total_prompt_chars,
+            payload["temperature"],
+            payload["max_tokens"],
+        )
+
+        async with httpx.AsyncClient(
+            timeout=300
+        ) as client:
             response = await client.post(
                 LLAMA_URL,
                 json=payload,
@@ -374,24 +629,58 @@ async def chat(chat_request: ChatRequest):
             response.raise_for_status()
             data = response.json()
 
-        reply = data["choices"][0]["message"]["content"]
+        llm_elapsed = (
+            time.perf_counter()
+            - llm_started
+        )
 
-        extracted_memory = await extract_memory(
-            chat_request.message
+        usage = data.get(
+            "usage",
+            {},
+        )
+
+        reply = (
+            data["choices"][0]
+            ["message"]["content"]
+        )
+
+        llm_logger.info(
+            "Main generation completed elapsed=%.3fs "
+            "prompt_tokens=%s completion_tokens=%s "
+            "total_tokens=%s reply_chars=%d",
+            llm_elapsed,
+            usage.get("prompt_tokens"),
+            usage.get(
+                "completion_tokens"
+            ),
+            usage.get("total_tokens"),
+            len(reply),
+        )
+
+        extracted_memory = (
+            await extract_memory(
+                chat_request.message
+            )
         )
 
         memory_created = None
 
         if extracted_memory:
-            memory_created = save_extracted_memory(
-                extracted_memory
+            memory_created = (
+                save_extracted_memory(
+                    extracted_memory
+                )
             )
 
-        elapsed = time.perf_counter() - started
+        elapsed = (
+            time.perf_counter()
+            - started
+        )
 
         api_logger.info(
-            "Chat request completed user_id=%s elapsed=%.3fs "
-            "memories_used=%d memory_created=%s reply_chars=%d",
+            "Chat request completed user_id=%s "
+            "elapsed=%.3fs memories_used=%d "
+            "memory_created=%s reply_chars=%d",
             USER_ID,
             elapsed,
             len(memories),
@@ -407,7 +696,10 @@ async def chat(chat_request: ChatRequest):
         }
 
     except Exception:
-        elapsed = time.perf_counter() - started
+        elapsed = (
+            time.perf_counter()
+            - started
+        )
 
         api_logger.exception(
             "Chat request failed user_id=%s elapsed=%.3fs",
