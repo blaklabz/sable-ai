@@ -1,12 +1,14 @@
 import json
+import time
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app.logging_config import setup_logging, api_logger
 from app.memory_retriever import retrieve_memories, embed_text
 from app.memory_store import MemoryStore
 
@@ -32,6 +34,8 @@ LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 USER_ID = "toby"
 
+setup_logging()
+
 app = FastAPI(title="Sable")
 
 templates = Jinja2Templates(
@@ -43,7 +47,7 @@ memory_store = MemoryStore()
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = []
+    history: list[dict] = Field(default_factory=list)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -210,7 +214,6 @@ Toby's message:
 
     content = data["choices"][0]["message"]["content"].strip()
 
-
     if "</think>" in content:
         content = content.split("</think>", 1)[1].strip()
 
@@ -239,6 +242,7 @@ Toby's message:
         return None
 
     return result
+
 
 def save_extracted_memory(memory: dict) -> int | None:
     summary = memory.get("summary", "").strip()
@@ -309,73 +313,106 @@ def save_extracted_memory(memory: dict) -> int | None:
 
 @app.post("/api/chat")
 async def chat(chat_request: ChatRequest):
-    system_prompt = load_system_prompt()
+    started = time.perf_counter()
 
-    memories = retrieve_memories(
-        chat_request.message,
-        limit=3,
+    api_logger.info(
+        "Chat request received user_id=%s history_messages=%d message_chars=%d",
+        USER_ID,
+        len(chat_request.history),
+        len(chat_request.message),
     )
 
-    memory_context = build_memory_context(memories)
+    try:
+        system_prompt = load_system_prompt()
 
-    messages = [
-        {
-            "role": "system",
-            "content": system_prompt,
-        }
-    ]
+        memories = retrieve_memories(
+            chat_request.message,
+            limit=3,
+        )
 
-    if memory_context:
-        messages.append(
+        memory_context = build_memory_context(memories)
+
+        messages = [
             {
                 "role": "system",
-                "content": memory_context,
+                "content": system_prompt,
+            }
+        ]
+
+        if memory_context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": memory_context,
+                }
+            )
+
+        messages.extend(
+            chat_request.history
+        )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": chat_request.message,
             }
         )
 
-    messages.extend(
-        chat_request.history
-    )
-
-    messages.append(
-        {
-            "role": "user",
-            "content": chat_request.message,
+        payload = {
+            "messages": messages,
+            "temperature": 0.8,
+            "max_tokens": 4096,
+            "stream": False,
         }
-    )
 
-    payload = {
-        "messages": messages,
-        "temperature": 0.8,
-        "max_tokens": 4096,
-        "stream": False,
-    }
+        async with httpx.AsyncClient(timeout=300) as client:
+            response = await client.post(
+                LLAMA_URL,
+                json=payload,
+            )
 
-    async with httpx.AsyncClient(timeout=300) as client:
-        response = await client.post(
-            LLAMA_URL,
-            json=payload,
+            response.raise_for_status()
+            data = response.json()
+
+        reply = data["choices"][0]["message"]["content"]
+
+        extracted_memory = await extract_memory(
+            chat_request.message
         )
 
-        response.raise_for_status()
-        data = response.json()
+        memory_created = None
 
-    reply = data["choices"][0]["message"]["content"]
+        if extracted_memory:
+            memory_created = save_extracted_memory(
+                extracted_memory
+            )
 
-    extracted_memory = await extract_memory(
-        chat_request.message
-    )
+        elapsed = time.perf_counter() - started
 
-    memory_created = None
-
-    if extracted_memory:
-        memory_created = save_extracted_memory(
-            extracted_memory
+        api_logger.info(
+            "Chat request completed user_id=%s elapsed=%.3fs "
+            "memories_used=%d memory_created=%s reply_chars=%d",
+            USER_ID,
+            elapsed,
+            len(memories),
+            memory_created,
+            len(reply),
         )
 
-    return {
-        "reply": reply,
-        "user_id": USER_ID,
-        "memories_used": memories,
-        "memory_created": memory_created,
-    }
+        return {
+            "reply": reply,
+            "user_id": USER_ID,
+            "memories_used": memories,
+            "memory_created": memory_created,
+        }
+
+    except Exception:
+        elapsed = time.perf_counter() - started
+
+        api_logger.exception(
+            "Chat request failed user_id=%s elapsed=%.3fs",
+            USER_ID,
+            elapsed,
+        )
+
+        raise
