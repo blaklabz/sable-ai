@@ -19,12 +19,20 @@ async def generate_haiku() -> str:
                     "The haiku may reflect on curiosity, technology, "
                     "nature, memory, bicycles, learning, or whatever "
                     "quiet thought feels appropriate. "
-                    "Return only the haiku. Do not explain it."
+                    "Return only the three-line haiku. "
+                    "Do not explain it. Do not show your reasoning."
                 ),
-            }
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Write tonight's haiku.\n"
+                    "/no_think"
+                ),
+            },
         ],
         "temperature": 0.9,
-        "max_tokens": 128,
+        "max_tokens": 256,
         "stream": False,
     }
 
@@ -45,16 +53,26 @@ async def generate_haiku() -> str:
 
     elapsed = time.perf_counter() - started
 
-    haiku = (
+    content = (
         data["choices"][0]["message"]["content"]
         .strip()
     )
 
-    if "</think>" in haiku:
-        haiku = haiku.split(
+    if "</think>" in content:
+        content = content.split(
             "</think>",
             1,
         )[1].strip()
+
+    if content.startswith("<think>"):
+        haiku_logger.warning(
+            "Haiku response contained unfinished reasoning"
+        )
+
+        content = (
+            "Haiku generation failed: "
+            "model returned reasoning without final answer."
+        )
 
     usage = data.get("usage", {})
 
@@ -66,10 +84,10 @@ async def generate_haiku() -> str:
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
         usage.get("total_tokens"),
-        haiku,
+        content,
     )
 
-    return haiku
+    return content
 
 
 async def main():
