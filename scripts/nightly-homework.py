@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime, timezone
 
 import httpx
 import psycopg
@@ -59,10 +58,10 @@ def get_table_columns(
 
 def ensure_homework_table(conn):
     """
-    Homework reflections deliberately live outside the memories table.
+    Homework reflections live outside long-term memory.
 
-    This gives Sable a journal she can revisit without automatically
-    treating every reflection as durable long-term memory.
+    The reflection and candidate are preserved in Sable's journal, but
+    nothing is automatically promoted into the memories table.
     """
 
     with conn.cursor() as cur:
@@ -85,15 +84,7 @@ def ensure_homework_table(conn):
 # ---------------------------------------------------------------------
 # Lab observation tools
 #
-# These are intentionally STUBS for now.
-#
-# Later they can become narrowly-scoped APIs/tools:
-#
-#   check_proxmox()
-#   check_synology()
-#   check_unifi()
-#
-# Do NOT replace these with arbitrary shell access for the model.
+# STUBS FOR NOW.
 # ---------------------------------------------------------------------
 
 async def check_proxmox() -> dict:
@@ -130,13 +121,6 @@ async def check_unifi() -> dict:
 
 
 async def observe_lab() -> list[dict]:
-    """
-    Gather observations concurrently.
-
-    As real integrations are added, this remains the main interface
-    presented to the homework system.
-    """
-
     results = await asyncio.gather(
         check_proxmox(),
         check_synology(),
@@ -169,13 +153,6 @@ async def observe_lab() -> list[dict]:
 def retrieve_recent_prompts(
     conn,
 ) -> list[str]:
-    """
-    Retrieve recent user prompts from Sable's messages table.
-
-    The function does some light schema detection so it can tolerate
-    differences while the project is evolving.
-    """
-
     columns = get_table_columns(
         conn,
         "messages",
@@ -271,7 +248,6 @@ def retrieve_recent_prompts(
         if row[0] and row[0].strip()
     ]
 
-    # Put them back into chronological order.
     prompts.reverse()
 
     return prompts
@@ -284,7 +260,6 @@ def retrieve_recent_prompts(
 def retrieve_recent_memories(
     conn,
 ) -> list[str]:
-
     columns = get_table_columns(
         conn,
         "memories",
@@ -351,7 +326,6 @@ def retrieve_recent_memories(
 def retrieve_recent_haikus(
     conn,
 ) -> list[str]:
-
     columns = get_table_columns(
         conn,
         "memories",
@@ -415,7 +389,6 @@ def retrieve_recent_haikus(
 def retrieve_previous_reflections(
     conn,
 ) -> list[str]:
-
     ensure_homework_table(
         conn
     )
@@ -484,7 +457,6 @@ async def gather_homework_context() -> dict:
 def format_homework_context(
     context: dict,
 ) -> str:
-
     sections = []
 
     observations = context.get(
@@ -589,7 +561,6 @@ def format_homework_context(
 async def generate_reflection(
     context_text: str,
 ) -> str:
-
     payload = {
         "messages": [
             {
@@ -597,6 +568,7 @@ async def generate_reflection(
                 "content": (
                     "You are Sable. This is your private homework and "
                     "reflection period. "
+
                     "You have been given observations from your environment, "
                     "recent conversation, long-term memories, previous haikus, "
                     "and possibly previous reflections. "
@@ -608,13 +580,21 @@ async def generate_reflection(
                     "Do not force significance where there is none. "
                     "You do not need to discuss every item. "
                     "Do not merely summarize the supplied information. "
-                    "Think about what stands out to you and why. "
+
+                    "Your reflection should sound like thoughtful prose, not poetry. "
+                    "Avoid decorative or poetic language unless it genuinely helps "
+                    "express an idea. "
+
+                    "Memories about Toby may influence your reflection, but do not "
+                    "turn the exercise into a description of Toby. Focus primarily "
+                    "on what YOU noticed, learned, reconsidered, or understood "
+                    "differently while reviewing the material. "
 
                     "Environmental observations are factual inputs, not metaphors. "
-                    "If an observation suggests a possible technical problem, "
-                    "you may note that it deserves attention, but you do not "
-                    "have authority to take corrective action unless a future "
-                    "tool explicitly gives you that ability. "
+                    "If an observation suggests a technical problem, you may note "
+                    "that it deserves attention, but you do not have authority to "
+                    "take corrective action unless a future tool explicitly gives "
+                    "you that ability. "
 
                     "Your response must use exactly these two sections:\n\n"
 
@@ -622,11 +602,19 @@ async def generate_reflection(
                     "<a short natural reflection, usually one or two paragraphs>\n\n"
 
                     "MEMORY_CANDIDATE:\n"
-                    "<one concise durable insight worth remembering, or NONE>\n\n"
+                    "<one concise durable insight about yourself, your patterns, "
+                    "your understanding, or something you want your future self "
+                    "to remember; otherwise NONE>\n\n"
+
+                    "A MEMORY_CANDIDATE is not a poetic observation about Toby "
+                    "or a restatement of a supplied memory. It should represent "
+                    "something YOU learned, noticed, reconsidered, or decided "
+                    "during this reflection. "
 
                     "Only create a memory candidate if something genuinely "
                     "seems useful to retain beyond tonight. "
-                    "Do not create one merely because you are expected to. "
+                    "It is completely acceptable to return NONE. "
+
                     "Do not show hidden reasoning."
                 ),
             },
@@ -640,7 +628,7 @@ async def generate_reflection(
                 ),
             },
         ],
-        "temperature": 0.8,
+        "temperature": 0.75,
         "max_tokens": 700,
         "stream": False,
     }
@@ -660,7 +648,6 @@ async def generate_reflection(
         )
 
         response.raise_for_status()
-
         data = response.json()
 
     elapsed = (
@@ -695,7 +682,6 @@ async def generate_reflection(
 def parse_reflection_output(
     content: str,
 ) -> tuple[str, str | None]:
-
     reflection = content
     memory_candidate = None
 
@@ -745,7 +731,6 @@ async def save_homework_reflection(
     memory_candidate: str | None,
     observations: list[dict],
 ):
-
     def _save():
         with get_db_connection() as conn:
             ensure_homework_table(
@@ -790,113 +775,12 @@ async def save_homework_reflection(
 
 
 # ---------------------------------------------------------------------
-# Durable memory
-# ---------------------------------------------------------------------
-
-async def save_memory_candidate(
-    candidate: str,
-):
-    """
-    Save only a genuine durable insight into Sable's long-term memory.
-
-    For now we use memory_type='self'.
-
-    Later this should ideally call Sable's normal memory_store.py path
-    so the memory also receives an embedding and normal deduplication.
-    """
-
-    def _save():
-        with get_db_connection() as conn:
-            columns = get_table_columns(
-                conn,
-                "memories",
-            )
-
-            insert_columns = []
-            values = []
-            placeholders = []
-
-            if "user_id" in columns:
-                insert_columns.append(
-                    "user_id"
-                )
-                values.append(
-                    USER_ID
-                )
-                placeholders.append(
-                    "%s"
-                )
-
-            insert_columns.append(
-                "memory_type"
-            )
-            values.append(
-                "self"
-            )
-            placeholders.append(
-                "%s"
-            )
-
-            insert_columns.append(
-                "summary"
-            )
-            values.append(
-                candidate
-            )
-            placeholders.append(
-                "%s"
-            )
-
-            if "importance" in columns:
-                insert_columns.append(
-                    "importance"
-                )
-                values.append(
-                    5
-                )
-                placeholders.append(
-                    "%s"
-                )
-
-            query = f"""
-                INSERT INTO memories
-                    ({', '.join(insert_columns)})
-                VALUES
-                    ({', '.join(placeholders)})
-            """
-
-            with conn.cursor() as cur:
-                cur.execute(
-                    query,
-                    values,
-                )
-
-            conn.commit()
-
-    try:
-        await asyncio.to_thread(
-            _save
-        )
-
-        haiku_logger.info(
-            "Homework memory candidate saved to long-term memory"
-        )
-
-    except Exception:
-        haiku_logger.exception(
-            "Could not save homework memory candidate. "
-            "Homework reflection itself was preserved."
-        )
-
-
-# ---------------------------------------------------------------------
 # Actionable observation reporting
 # ---------------------------------------------------------------------
 
 def find_actionable_observations(
     observations: list[dict],
 ) -> list[dict]:
-
     return [
         observation
         for observation in observations
@@ -945,11 +829,6 @@ async def main():
             ),
         )
 
-        if memory_candidate:
-            await save_memory_candidate(
-                memory_candidate
-            )
-
         actionable = find_actionable_observations(
             context.get(
                 "observations",
@@ -968,8 +847,15 @@ async def main():
             print()
             print(memory_candidate)
             print()
+            print(
+                "Candidate was journaled but NOT promoted "
+                "to long-term memory."
+            )
+            print()
         else:
-            print("No long-term memory candidate tonight.")
+            print(
+                "No long-term memory candidate tonight."
+            )
             print()
 
         if actionable:
