@@ -16,8 +16,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 USER_ID = "toby"
 
-RECENT_MEMORY_LIMIT = 8
-PREVIOUS_HAIKU_LIMIT = 5
+RECENT_MEMORY_LIMIT = 3
+PREVIOUS_HAIKU_LIMIT = 3
 
 
 def get_db_connection():
@@ -32,9 +32,6 @@ def get_db_connection():
 def get_memory_columns(conn) -> set[str]:
     """
     Return the columns currently present on the memories table.
-
-    This lets nightly-haiku.py tolerate small schema differences while
-    Sable's memory system is still evolving.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -113,8 +110,9 @@ def retrieve_recent_memories(
     columns: set[str],
 ) -> list[str]:
     """
-    Retrieve recent long-term memories, excluding haikus so the two
-    categories can be presented separately to Sable.
+    Retrieve a small randomized sample of long-term memories.
+
+    Haikus are excluded because they are retrieved separately.
     """
     if "summary" not in columns:
         haiku_logger.warning(
@@ -145,17 +143,11 @@ def retrieve_recent_memories(
             + " AND ".join(where_parts)
         )
 
-    order_column = (
-        "created_at"
-        if "created_at" in columns
-        else "id"
-    )
-
     query = f"""
         SELECT summary
         FROM memories
         {where_clause}
-        ORDER BY {order_column} DESC
+        ORDER BY RANDOM()
         LIMIT %s
     """
 
@@ -178,10 +170,7 @@ def retrieve_recent_memories(
 
 async def retrieve_memories_for_haiku() -> tuple[list[str], list[str]]:
     """
-    Retrieve previous haikus and recent long-term memories.
-
-    DB operations are run in a thread so they don't block the asyncio
-    event loop used by the HTTP request to llama-server.
+    Retrieve previous haikus and a randomized sample of long-term memories.
     """
 
     def _retrieve():
@@ -231,7 +220,9 @@ async def build_haiku_context() -> str:
         )
 
         sections.append(
-            "Previous haikus you have written:\n\n"
+            "Recent haikus you have written. "
+            "Use them only for continuity and reflection. "
+            "Do not reuse their wording, imagery, subject, or structure.\n\n"
             f"{formatted_haikus}"
         )
 
@@ -242,7 +233,7 @@ async def build_haiku_context() -> str:
         )
 
         sections.append(
-            "Recent long-term memories:\n"
+            "A small selection of long-term memories available to you:\n"
             f"{formatted_memories}"
         )
 
@@ -266,9 +257,11 @@ async def generate_haiku(
                 "role": "system",
                 "content": (
                     "You are Sable. Write one original haiku. "
-                    "Let long-term memories and previous reflections influence you naturally, "
-                    "but do not copy or closely repeat the wording, imagery, subject, or structure "
-                    "of recent haikus. Choose a fresh angle or association each time. "
+                    "Let long-term memories and previous reflections influence "
+                    "you naturally, but do not closely repeat the wording, imagery, "
+                    "subject, or structure of recent haikus. "
+                    "Choose a fresh association, perspective, or subject each time. "
+                    "You do not need to use every memory provided to you. "
                     "Return only the three-line haiku. "
                     "Do not explain it. Do not show your reasoning."
                 ),
@@ -276,10 +269,10 @@ async def generate_haiku(
             {
                 "role": "system",
                 "content": (
-                    "The following material comes from your own long-term "
-                    "memory and previous writing. Let it influence your "
-                    "reflection naturally. You do not need to mention, "
-                    "summarize, or explicitly reference any particular item.\n\n"
+                    "The following material comes from your own long-term memory "
+                    "and previous writing. Let it influence your reflection naturally. "
+                    "Do not treat it as a checklist. You may ignore some or all of it "
+                    "if another thought feels more meaningful.\n\n"
                     f"{memory_context}"
                 ),
             },
@@ -363,12 +356,7 @@ async def save_haiku(
     haiku: str,
 ) -> None:
     """
-    Attempt to save tonight's haiku into the memories table.
-
-    This deliberately does not cause the nightly job to fail if Sable's
-    memory schema requires additional fields such as embeddings. We'll
-    see that clearly in the log and can then wire saving through the
-    existing memory_store.py implementation.
+    Save tonight's haiku into Sable's long-term memory.
     """
 
     def _save():
