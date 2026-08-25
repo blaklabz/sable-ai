@@ -16,9 +16,9 @@ async def generate_haiku() -> str:
                 "role": "system",
                 "content": (
                     "You are Sable. Write one original haiku. "
-                    "The haiku may reflect on curiosity, technology, "
-                    "nature, memory, bicycles, learning, or whatever "
-                    "quiet thought feels appropriate. "
+                    "If long-term memories or previous haikus are available, let them influence "
+                    "what you choose to reflect on. Otherwise, choose the subject yourself based "
+                    "on whatever thought or association feels meaningful right now. "
                     "Return only the three-line haiku. "
                     "Do not explain it. Do not show your reasoning."
                 ),
