@@ -1,8 +1,11 @@
 import json
+import os
 import time
 from pathlib import Path
 
 import httpx
+import psycopg
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -17,6 +20,9 @@ from app.logging_config import (
 )
 from app.memory_retriever import retrieve_memories, embed_text
 from app.memory_store import MemoryStore
+
+
+load_dotenv()
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,14 +44,24 @@ PROMPT_FILES = [
 
 LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 USER_ID = "toby"
+CONVERSATION_ID = 1
+
 
 setup_logging()
 
-app = FastAPI(title="Sable")
+app = FastAPI(
+    title="Sable"
+)
 
 templates = Jinja2Templates(
-    directory=str(BASE_DIR / "app" / "templates")
+    directory=str(
+        BASE_DIR
+        / "app"
+        / "templates"
+    )
 )
 
 memory_store = MemoryStore()
@@ -53,29 +69,135 @@ memory_store = MemoryStore()
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = Field(default_factory=list)
+    history: list[dict] = Field(
+        default_factory=list
+    )
 
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+# ---------------------------------------------------------------------
+# Database / message history
+# ---------------------------------------------------------------------
+
+def get_db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. "
+            "Check your .env file."
+        )
+
+    return psycopg.connect(
+        DATABASE_URL
+    )
+
+
+def save_message(
+    conversation_id: int,
+    role: str,
+    content: str,
+) -> int:
+    """
+    Save one conversation message.
+
+    Both Toby's messages and Sable's replies are preserved so later
+    systems such as nightly homework can review recent interactions.
+    """
+
+    content = content.strip()
+
+    if not content:
+        raise ValueError(
+            "Cannot save an empty message"
+        )
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO messages (
+                    conversation_id,
+                    role,
+                    content
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s
+                )
+                RETURNING id
+                """,
+                (
+                    conversation_id,
+                    role,
+                    content,
+                ),
+            )
+
+            row = cur.fetchone()
+
+            if not row:
+                raise RuntimeError(
+                    "Message insert did not return an id"
+                )
+
+            message_id = row[0]
+
+        conn.commit()
+
+    api_logger.info(
+        "Message saved id=%s "
+        "conversation_id=%s role=%s chars=%d",
+        message_id,
+        conversation_id,
+        role,
+        len(content),
+    )
+
+    return message_id
+
+
+# ---------------------------------------------------------------------
+# Web interface
+# ---------------------------------------------------------------------
+
+@app.get(
+    "/",
+    response_class=HTMLResponse,
+)
+async def home(
+    request: Request,
+):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"user_id": USER_ID},
+        context={
+            "user_id": USER_ID
+        },
     )
 
+
+# ---------------------------------------------------------------------
+# Prompt loading
+# ---------------------------------------------------------------------
 
 def load_system_prompt() -> str:
     sections = []
     loaded_files = []
 
     for filename in PROMPT_FILES:
-        prompt_file = CONFIG_DIR / filename
+        prompt_file = (
+            CONFIG_DIR
+            / filename
+        )
 
         try:
-            content = prompt_file.read_text(
-                encoding="utf-8"
-            ).strip()
+            content = (
+                prompt_file
+                .read_text(
+                    encoding="utf-8"
+                )
+                .strip()
+            )
+
         except Exception:
             prompt_logger.exception(
                 "Failed loading prompt file=%s",
@@ -84,23 +206,43 @@ def load_system_prompt() -> str:
             raise
 
         if content:
-            section_name = prompt_file.stem.upper()
-            sections.append(
-                f"## {section_name}\n{content}"
+            section_name = (
+                prompt_file
+                .stem
+                .upper()
             )
-            loaded_files.append(filename)
 
-    system_prompt = "\n\n".join(sections)
+            sections.append(
+                f"## {section_name}\n"
+                f"{content}"
+            )
+
+            loaded_files.append(
+                filename
+            )
+
+    system_prompt = (
+        "\n\n".join(
+            sections
+        )
+    )
 
     prompt_logger.info(
-        "System prompt loaded files=%d chars=%d file_names=%s",
+        "System prompt loaded "
+        "files=%d chars=%d file_names=%s",
         len(loaded_files),
         len(system_prompt),
-        ",".join(loaded_files),
+        ",".join(
+            loaded_files
+        ),
     )
 
     return system_prompt
 
+
+# ---------------------------------------------------------------------
+# Memory context
+# ---------------------------------------------------------------------
 
 def build_memory_context(
     memories: list[dict],
@@ -120,20 +262,34 @@ def build_memory_context(
             f"- {memory['summary']}"
         )
 
-    memory_context = "\n".join(lines)
+    memory_context = (
+        "\n".join(
+            lines
+        )
+    )
 
     memory_logger.info(
-        "Memory context built memories=%d chars=%d ids=%s",
+        "Memory context built "
+        "memories=%d chars=%d ids=%s",
         len(memories),
         len(memory_context),
         ",".join(
-            str(memory.get("id", "unknown"))
+            str(
+                memory.get(
+                    "id",
+                    "unknown",
+                )
+            )
             for memory in memories
         ),
     )
 
     return memory_context
 
+
+# ---------------------------------------------------------------------
+# Memory extraction
+# ---------------------------------------------------------------------
 
 async def extract_memory(
     user_message: str,
@@ -258,10 +414,13 @@ Toby's message:
         "stream": False,
     }
 
-    llm_started = time.perf_counter()
+    llm_started = (
+        time.perf_counter()
+    )
 
     llm_logger.info(
-        "Memory extraction started message_chars=%d prompt_chars=%d",
+        "Memory extraction started "
+        "message_chars=%d prompt_chars=%d",
         len(user_message),
         len(prompt),
     )
@@ -275,6 +434,7 @@ Toby's message:
         )
 
         response.raise_for_status()
+
         data = response.json()
 
     llm_elapsed = (
@@ -288,16 +448,26 @@ Toby's message:
     )
 
     llm_logger.info(
-        "Memory extraction completed elapsed=%.3fs "
-        "prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        "Memory extraction completed "
+        "elapsed=%.3fs "
+        "prompt_tokens=%s "
+        "completion_tokens=%s "
+        "total_tokens=%s",
         llm_elapsed,
-        usage.get("prompt_tokens"),
-        usage.get("completion_tokens"),
-        usage.get("total_tokens"),
+        usage.get(
+            "prompt_tokens"
+        ),
+        usage.get(
+            "completion_tokens"
+        ),
+        usage.get(
+            "total_tokens"
+        ),
     )
 
     content = (
-        data["choices"][0]["message"]["content"]
+        data["choices"][0]
+        ["message"]["content"]
         .strip()
     )
 
@@ -307,20 +477,26 @@ Toby's message:
             1,
         )[1].strip()
 
-    if content.startswith("```"):
+    if content.startswith(
+        "```"
+    ):
         content = (
-            content.strip("`")
+            content
+            .strip("`")
             .strip()
         )
 
         if content.lower().startswith(
             "json"
         ):
-            content = content[
-                4:
-            ].strip()
+            content = (
+                content[4:]
+                .strip()
+            )
 
-    content = content.strip()
+    content = (
+        content.strip()
+    )
 
     # Repair a JSON object that is only
     # missing its final closing brace.
@@ -335,45 +511,70 @@ Toby's message:
         result = json.loads(
             content
         )
+
     except json.JSONDecodeError:
         memory_logger.warning(
-            "Memory extraction returned invalid JSON content=%r",
+            "Memory extraction returned "
+            "invalid JSON content=%r",
             content,
         )
+
         return None
 
     if not result.get(
         "remember"
     ):
         memory_logger.info(
-            "Memory evaluator rejected message remember=false"
+            "Memory evaluator rejected "
+            "message remember=false"
         )
+
         return None
 
     memory_logger.info(
         "Memory evaluator accepted memory "
-        "type=%s subject=%s predicate=%s importance=%s confidence=%s",
-        result.get("memory_type"),
-        result.get("subject"),
-        result.get("predicate"),
-        result.get("importance"),
-        result.get("confidence"),
+        "type=%s subject=%s "
+        "predicate=%s importance=%s "
+        "confidence=%s",
+        result.get(
+            "memory_type"
+        ),
+        result.get(
+            "subject"
+        ),
+        result.get(
+            "predicate"
+        ),
+        result.get(
+            "importance"
+        ),
+        result.get(
+            "confidence"
+        ),
     )
 
     return result
 
 
+# ---------------------------------------------------------------------
+# Memory storage
+# ---------------------------------------------------------------------
+
 def save_extracted_memory(
     memory: dict,
 ) -> int | None:
-    summary = memory.get(
-        "summary",
-        "",
-    ).strip()
+    summary = (
+        memory.get(
+            "summary",
+            "",
+        )
+        .strip()
+    )
 
     if not summary:
         memory_logger.warning(
-            "Skipping extracted memory with empty summary"
+            "Skipping extracted memory "
+            "with empty summary"
         )
         return None
 
@@ -386,13 +587,16 @@ def save_extracted_memory(
         "plan",
     }
 
-    memory_type = memory.get(
-        "memory_type"
+    memory_type = (
+        memory.get(
+            "memory_type"
+        )
     )
 
     if memory_type not in allowed_types:
         memory_logger.warning(
-            "Skipping memory with invalid type=%s",
+            "Skipping memory with "
+            "invalid type=%s",
             memory_type,
         )
         return None
@@ -404,6 +608,7 @@ def save_extracted_memory(
                 5,
             )
         )
+
     except (
         TypeError,
         ValueError,
@@ -425,6 +630,7 @@ def save_extracted_memory(
                 1.0,
             )
         )
+
     except (
         TypeError,
         ValueError,
@@ -440,7 +646,8 @@ def save_extracted_memory(
     )
 
     memory_logger.info(
-        "Generating embedding for memory summary_chars=%d",
+        "Generating embedding for "
+        "memory summary_chars=%d",
         len(summary),
     )
 
@@ -458,7 +665,8 @@ def save_extracted_memory(
     )
 
     memory_logger.info(
-        "Memory embedding generated elapsed=%.3fs dimensions=%d",
+        "Memory embedding generated "
+        "elapsed=%.3fs dimensions=%d",
         embedding_elapsed,
         len(embedding),
     )
@@ -483,7 +691,9 @@ def save_extracted_memory(
     )
 
     memory_logger.info(
-        "Memory created id=%s type=%s importance=%d confidence=%.2f summary=%r",
+        "Memory created "
+        "id=%s type=%s importance=%d "
+        "confidence=%.2f summary=%r",
         memory_id,
         memory_type,
         importance,
@@ -494,7 +704,13 @@ def save_extracted_memory(
     return memory_id
 
 
-@app.post("/api/chat")
+# ---------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------
+
+@app.post(
+    "/api/chat"
+)
 async def chat(
     chat_request: ChatRequest,
 ):
@@ -503,25 +719,54 @@ async def chat(
     )
 
     api_logger.info(
-        "Chat request received user_id=%s "
-        "history_messages=%d message_chars=%d",
+        "Chat request received "
+        "user_id=%s "
+        "history_messages=%d "
+        "message_chars=%d",
         USER_ID,
-        len(chat_request.history),
-        len(chat_request.message),
+        len(
+            chat_request.history
+        ),
+        len(
+            chat_request.message
+        ),
     )
 
     try:
+        # -------------------------------------------------------------
+        # Persist Toby's message before generation.
+        # -------------------------------------------------------------
+
+        user_message_id = (
+            save_message(
+                conversation_id=CONVERSATION_ID,
+                role="user",
+                content=chat_request.message,
+            )
+        )
+
+        # -------------------------------------------------------------
+        # Build Sable's system prompt.
+        # -------------------------------------------------------------
+
         system_prompt = (
             load_system_prompt()
         )
+
+        # -------------------------------------------------------------
+        # Retrieve relevant long-term memories.
+        # -------------------------------------------------------------
 
         memory_started = (
             time.perf_counter()
         )
 
         memory_logger.info(
-            "Memory retrieval started query_chars=%d limit=%d",
-            len(chat_request.message),
+            "Memory retrieval started "
+            "query_chars=%d limit=%d",
+            len(
+                chat_request.message
+            ),
             3,
         )
 
@@ -538,7 +783,8 @@ async def chat(
         )
 
         memory_logger.info(
-            "Memory retrieval completed elapsed=%.3fs results=%d",
+            "Memory retrieval completed "
+            "elapsed=%.3fs results=%d",
             memory_elapsed,
             len(memories),
         )
@@ -548,6 +794,10 @@ async def chat(
                 memories
             )
         )
+
+        # -------------------------------------------------------------
+        # Build conversation sent to llama-server.
+        # -------------------------------------------------------------
 
         messages = [
             {
@@ -571,7 +821,9 @@ async def chat(
         messages.append(
             {
                 "role": "user",
-                "content": chat_request.message,
+                "content": (
+                    chat_request.message
+                ),
             }
         )
 
@@ -588,15 +840,24 @@ async def chat(
         )
 
         prompt_logger.info(
-            "Chat prompt assembled messages=%d "
-            "system_chars=%d memory_chars=%d "
-            "history_messages=%d total_chars=%d",
+            "Chat prompt assembled "
+            "messages=%d "
+            "system_chars=%d "
+            "memory_chars=%d "
+            "history_messages=%d "
+            "total_chars=%d",
             len(messages),
             len(system_prompt),
             len(memory_context),
-            len(chat_request.history),
+            len(
+                chat_request.history
+            ),
             total_prompt_chars,
         )
+
+        # -------------------------------------------------------------
+        # Main generation.
+        # -------------------------------------------------------------
 
         payload = {
             "messages": messages,
@@ -610,8 +871,11 @@ async def chat(
         )
 
         llm_logger.info(
-            "Main generation started messages=%d "
-            "prompt_chars=%d temperature=%.1f max_tokens=%d",
+            "Main generation started "
+            "messages=%d "
+            "prompt_chars=%d "
+            "temperature=%.1f "
+            "max_tokens=%d",
             len(messages),
             total_prompt_chars,
             payload["temperature"],
@@ -621,13 +885,18 @@ async def chat(
         async with httpx.AsyncClient(
             timeout=300
         ) as client:
-            response = await client.post(
-                LLAMA_URL,
-                json=payload,
+            response = (
+                await client.post(
+                    LLAMA_URL,
+                    json=payload,
+                )
             )
 
             response.raise_for_status()
-            data = response.json()
+
+            data = (
+                response.json()
+            )
 
         llm_elapsed = (
             time.perf_counter()
@@ -642,20 +911,44 @@ async def chat(
         reply = (
             data["choices"][0]
             ["message"]["content"]
+            .strip()
         )
 
         llm_logger.info(
-            "Main generation completed elapsed=%.3fs "
-            "prompt_tokens=%s completion_tokens=%s "
-            "total_tokens=%s reply_chars=%d",
+            "Main generation completed "
+            "elapsed=%.3fs "
+            "prompt_tokens=%s "
+            "completion_tokens=%s "
+            "total_tokens=%s "
+            "reply_chars=%d",
             llm_elapsed,
-            usage.get("prompt_tokens"),
+            usage.get(
+                "prompt_tokens"
+            ),
             usage.get(
                 "completion_tokens"
             ),
-            usage.get("total_tokens"),
+            usage.get(
+                "total_tokens"
+            ),
             len(reply),
         )
+
+        # -------------------------------------------------------------
+        # Persist Sable's response.
+        # -------------------------------------------------------------
+
+        assistant_message_id = (
+            save_message(
+                conversation_id=CONVERSATION_ID,
+                role="assistant",
+                content=reply,
+            )
+        )
+
+        # -------------------------------------------------------------
+        # Evaluate Toby's message for durable long-term memory.
+        # -------------------------------------------------------------
 
         extracted_memory = (
             await extract_memory(
@@ -678,13 +971,20 @@ async def chat(
         )
 
         api_logger.info(
-            "Chat request completed user_id=%s "
-            "elapsed=%.3fs memories_used=%d "
-            "memory_created=%s reply_chars=%d",
+            "Chat request completed "
+            "user_id=%s "
+            "elapsed=%.3fs "
+            "memories_used=%d "
+            "memory_created=%s "
+            "user_message_id=%s "
+            "assistant_message_id=%s "
+            "reply_chars=%d",
             USER_ID,
             elapsed,
             len(memories),
             memory_created,
+            user_message_id,
+            assistant_message_id,
             len(reply),
         )
 
@@ -693,6 +993,8 @@ async def chat(
             "user_id": USER_ID,
             "memories_used": memories,
             "memory_created": memory_created,
+            "user_message_id": user_message_id,
+            "assistant_message_id": assistant_message_id,
         }
 
     except Exception:
@@ -702,7 +1004,8 @@ async def chat(
         )
 
         api_logger.exception(
-            "Chat request failed user_id=%s elapsed=%.3fs",
+            "Chat request failed "
+            "user_id=%s elapsed=%.3fs",
             USER_ID,
             elapsed,
         )
