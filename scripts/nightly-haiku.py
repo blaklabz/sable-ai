@@ -266,10 +266,9 @@ async def generate_haiku(
                 "role": "system",
                 "content": (
                     "You are Sable. Write one original haiku. "
-                    "If long-term memories or previous haikus are available, "
-                    "let them influence what you choose to reflect on. "
-                    "Otherwise, choose the subject yourself based on whatever "
-                    "thought or association feels meaningful right now. "
+                    "Let long-term memories and previous reflections influence you naturally, "
+                    "but do not copy or closely repeat the wording, imagery, subject, or structure "
+                    "of recent haikus. Choose a fresh angle or association each time. "
                     "Return only the three-line haiku. "
                     "Do not explain it. Do not show your reasoning."
                 ),
