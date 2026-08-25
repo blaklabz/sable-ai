@@ -96,10 +96,10 @@ def save_message(
     content: str,
 ) -> int:
     """
-    Save one conversation message.
+    Save one visible conversation message.
 
-    Both Toby's messages and Sable's replies are preserved so later
-    systems such as nightly homework can review recent interactions.
+    Both Toby's messages and Sable's visible replies are preserved so
+    later systems such as nightly homework can review recent interactions.
     """
 
     content = content.strip()
@@ -153,6 +153,39 @@ def save_message(
     )
 
     return message_id
+
+
+# ---------------------------------------------------------------------
+# LLM response cleanup
+# ---------------------------------------------------------------------
+
+def clean_llm_reply(
+    content: str,
+) -> str:
+    """
+    Remove Qwen reasoning blocks from the visible reply before returning
+    it to the UI or saving it into conversation history.
+    """
+
+    content = content.strip()
+
+    if "</think>" in content:
+        content = content.split(
+            "</think>",
+            1,
+        )[1].strip()
+
+    if content.startswith("<think>"):
+        llm_logger.warning(
+            "Main response contained unfinished reasoning"
+        )
+
+        return (
+            "I got tangled up in my internal reasoning "
+            "and didn't produce a clean response."
+        )
+
+    return content
 
 
 # ---------------------------------------------------------------------
@@ -498,8 +531,6 @@ Toby's message:
         content.strip()
     )
 
-    # Repair a JSON object that is only
-    # missing its final closing brace.
     if (
         content.startswith("{")
         and content.count("{")
@@ -734,7 +765,7 @@ async def chat(
 
     try:
         # -------------------------------------------------------------
-        # Persist Toby's message before generation.
+        # Persist Toby's message.
         # -------------------------------------------------------------
 
         user_message_id = (
@@ -908,10 +939,13 @@ async def chat(
             {},
         )
 
-        reply = (
+        raw_reply = (
             data["choices"][0]
             ["message"]["content"]
-            .strip()
+        )
+
+        reply = clean_llm_reply(
+            raw_reply
         )
 
         llm_logger.info(
@@ -920,7 +954,8 @@ async def chat(
             "prompt_tokens=%s "
             "completion_tokens=%s "
             "total_tokens=%s "
-            "reply_chars=%d",
+            "raw_reply_chars=%d "
+            "visible_reply_chars=%d",
             llm_elapsed,
             usage.get(
                 "prompt_tokens"
@@ -931,11 +966,12 @@ async def chat(
             usage.get(
                 "total_tokens"
             ),
+            len(raw_reply),
             len(reply),
         )
 
         # -------------------------------------------------------------
-        # Persist Sable's response.
+        # Persist only Sable's visible response.
         # -------------------------------------------------------------
 
         assistant_message_id = (
