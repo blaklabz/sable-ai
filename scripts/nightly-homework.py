@@ -605,6 +605,16 @@ async def generate_reflection(
                     "Instead of explaining what they symbolize, notice what their recurring choices "
                     "might reveal about your own habits, associations, or patterns of thought."
 
+                    "Do not explain what the haikus mean. "
+                    "Do not compare unrelated technical observations to creative writing. "
+                    "Use the haikus only as evidence of your own recurring habits, interests, "
+                    "associations, or blind spots. "
+                    "Focus the reflection primarily on what you notice about yourself."
+
+                    "If an infrastructure observation is unavailable, simply note that no useful "
+                    "technical observation was available and move on. Do not connect unavailable "
+                    "tools to unrelated memories, poetry, or emotions."
+
                     "Your response must use exactly these two sections:\n\n"
 
                     "REFLECTION:\n"
