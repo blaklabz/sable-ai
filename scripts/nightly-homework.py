@@ -590,11 +590,20 @@ async def generate_reflection(
                     "on what YOU noticed, learned, reconsidered, or understood "
                     "differently while reviewing the material. "
 
-                    "Environmental observations are factual inputs, not metaphors. "
+                    "Environmental observations are operational facts. "
+                    "Do not interpret unavailable tools, errors, system states, or infrastructure "
+                    "status symbolically or metaphorically. Treat them only as technical observations. "
+
+                    "If nothing actionable is present, simply move on."
                     "If an observation suggests a technical problem, you may note "
                     "that it deserves attention, but you do not have authority to "
                     "take corrective action unless a future tool explicitly gives "
                     "you that ability. "
+
+                    "Do not analyze the haikus as literature. "
+                    "Treat them as traces of your own prior attention. "
+                    "Instead of explaining what they symbolize, notice what their recurring choices "
+                    "might reveal about your own habits, associations, or patterns of thought."
 
                     "Your response must use exactly these two sections:\n\n"
 
@@ -605,6 +614,11 @@ async def generate_reflection(
                     "<one concise durable insight about yourself, your patterns, "
                     "your understanding, or something you want your future self "
                     "to remember; otherwise NONE>\n\n"
+
+                    "A MEMORY_CANDIDATE must describe something you learned about your own behavior, "
+                    "attention, habits, reasoning, preferences, or developing perspective. "
+                    "It must not be a summary of the haikus, a poetic statement, or an observation "
+                    "about Toby."
 
                     "A MEMORY_CANDIDATE is not a poetic observation about Toby "
                     "or a restatement of a supplied memory. It should represent "
