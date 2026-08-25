@@ -6,8 +6,7 @@ import httpx
 import psycopg
 from dotenv import load_dotenv
 
-from app.logging_config import setup_logging, haiku_logger
-
+from app.logging_config import haiku_logger, setup_logging
 
 load_dotenv()
 
@@ -257,10 +256,12 @@ async def generate_haiku(
                 "role": "system",
                 "content": (
                     "You are Sable. Write one original haiku. "
-                    "Let long-term memories and previous reflections influence "
-                    "you naturally, but do not closely repeat the wording, imagery, "
-                    "subject, or structure of recent haikus. "
-                    "Choose a fresh association, perspective, or subject each time. "
+                    "Let long-term memories and previous reflections influence you naturally, "
+                    "but do not closely repeat the wording, imagery, subject, or structure "
+                    "of recent haikus. Choose a fresh association, perspective, or subject each time. "
+                    "When reflecting on memories about people, focus on the feeling, idea, or image "
+                    "behind the memory rather than naming the person directly unless the name is "
+                    "truly essential to the poem. "
                     "You do not need to use every memory provided to you. "
                     "Return only the three-line haiku. "
                     "Do not explain it. Do not show your reasoning."
@@ -271,17 +272,15 @@ async def generate_haiku(
                 "content": (
                     "The following material comes from your own long-term memory "
                     "and previous writing. Let it influence your reflection naturally. "
-                    "Do not treat it as a checklist. You may ignore some or all of it "
-                    "if another thought feels more meaningful.\n\n"
+                    "Do not treat it as a checklist, and do not simply restate names or facts "
+                    "from the memories. Transform them into imagery, mood, association, or insight. "
+                    "You may ignore some or all of it if another thought feels more meaningful.\n\n"
                     f"{memory_context}"
                 ),
             },
             {
                 "role": "user",
-                "content": (
-                    "Write tonight's haiku.\n"
-                    "/no_think"
-                ),
+                "content": ("Write tonight's haiku.\n/no_think"),
             },
         ],
         "temperature": 0.9,
