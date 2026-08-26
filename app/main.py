@@ -504,6 +504,11 @@ Toby's message:
         .strip()
     )
 
+    llm_logger.info(
+        "Raw memory evaluator response:\n%s",
+        content,
+    )
+
     if "</think>" in content:
         content = content.split(
             "</think>",
