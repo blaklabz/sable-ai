@@ -944,8 +944,18 @@ async def chat(
             ["message"]["content"]
         )
 
+        llm_logger.info(
+            "Raw LLM response:\n%s",
+            raw_reply,
+        )
+
         reply = clean_llm_reply(
             raw_reply
+        )
+
+        api_logger.info(
+            "Visible Sable reply:\n%s",
+            reply,
         )
 
         llm_logger.info(
