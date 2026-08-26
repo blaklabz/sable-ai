@@ -12,15 +12,14 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.logging_config import (
-    setup_logging,
     api_logger,
     llm_logger,
     memory_logger,
     prompt_logger,
+    setup_logging,
 )
-from app.memory_retriever import retrieve_memories, embed_text
+from app.memory_retriever import embed_text, retrieve_memories
 from app.memory_store import MemoryStore
-
 
 load_dotenv()
 
@@ -291,6 +290,14 @@ def build_memory_context(
     ]
 
     for memory in memories:
+        memory_logger.info(
+            "Injecting memory id=%s type=%s score=%s importance=%s summary=%r",
+            memory.get("id"),
+            memory.get("memory_type"),
+            memory.get("score"),
+            memory.get("importance"),
+            memory.get("summary"),
+        )
         lines.append(
             f"- {memory['summary']}"
         )
