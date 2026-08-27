@@ -986,7 +986,7 @@ async def chat(
         payload = {
             "messages": messages,
             "temperature": 0.8,
-            "max_tokens": 4096,
+            "max_tokens": 2048,
             "stream": False,
         }
 
