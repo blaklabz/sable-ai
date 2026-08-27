@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import psycopg
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -286,20 +286,34 @@ def build_memory_context(
         return ""
 
     lines = [
-        "## RELEVANT LONG-TERM MEMORY"
+        "## RELEVANT LONG-TERM MEMORY",
+        (
+            "The following entries are retrieved records from your "
+            "long-term memory. Treat them as available memories, not "
+            "as guesses or vague impressions."
+        ),
     ]
 
     for memory in memories:
         memory_logger.info(
-            "Injecting memory id=%s type=%s score=%s importance=%s summary=%r",
+            "Injecting memory "
+            "id=%s type=%s similarity=%s "
+            "importance=%s summary=%r",
             memory.get("id"),
             memory.get("memory_type"),
-            memory.get("score"),
+            memory.get("similarity"),
             memory.get("importance"),
             memory.get("summary"),
         )
+
+        memory_type = (
+            memory.get("memory_type")
+            or "unknown"
+        )
+
         lines.append(
-            f"- {memory['summary']}"
+            f"- [{memory_type}] "
+            f"{memory['summary']}"
         )
 
     memory_context = (
@@ -748,6 +762,72 @@ def save_extracted_memory(
 
 
 # ---------------------------------------------------------------------
+# Background memory processing
+# ---------------------------------------------------------------------
+
+async def process_memory_background(
+    user_message: str,
+) -> None:
+    """
+    Evaluate and store long-term memory after the visible chat response
+    has already been returned to the browser.
+
+    Any failure here is logged but must never break the completed
+    conversation response.
+    """
+
+    started = (
+        time.perf_counter()
+    )
+
+    try:
+        memory_logger.info(
+            "Background memory processing started "
+            "message_chars=%d",
+            len(user_message),
+        )
+
+        extracted_memory = (
+            await extract_memory(
+                user_message
+            )
+        )
+
+        memory_created = None
+
+        if extracted_memory:
+            memory_created = (
+                save_extracted_memory(
+                    extracted_memory
+                )
+            )
+
+        elapsed = (
+            time.perf_counter()
+            - started
+        )
+
+        memory_logger.info(
+            "Background memory processing completed "
+            "elapsed=%.3fs memory_created=%s",
+            elapsed,
+            memory_created,
+        )
+
+    except Exception:
+        elapsed = (
+            time.perf_counter()
+            - started
+        )
+
+        memory_logger.exception(
+            "Background memory processing failed "
+            "elapsed=%.3fs",
+            elapsed,
+        )
+
+
+# ---------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------
 
@@ -756,6 +836,7 @@ def save_extracted_memory(
 )
 async def chat(
     chat_request: ChatRequest,
+    background_tasks: BackgroundTasks,
 ):
     started = (
         time.perf_counter()
@@ -1005,23 +1086,18 @@ async def chat(
         )
 
         # -------------------------------------------------------------
-        # Evaluate Toby's message for durable long-term memory.
+        # Queue durable-memory evaluation.
+        #
+        # This deliberately happens AFTER Sable's response has been
+        # generated and saved. FastAPI runs the task after sending the
+        # HTTP response, so the browser no longer waits for memory
+        # extraction.
         # -------------------------------------------------------------
 
-        extracted_memory = (
-            await extract_memory(
-                chat_request.message
-            )
+        background_tasks.add_task(
+            process_memory_background,
+            chat_request.message,
         )
-
-        memory_created = None
-
-        if extracted_memory:
-            memory_created = (
-                save_extracted_memory(
-                    extracted_memory
-                )
-            )
 
         elapsed = (
             time.perf_counter()
@@ -1029,18 +1105,17 @@ async def chat(
         )
 
         api_logger.info(
-            "Chat request completed "
+            "Chat response ready "
             "user_id=%s "
             "elapsed=%.3fs "
             "memories_used=%d "
-            "memory_created=%s "
+            "memory_evaluation=queued "
             "user_message_id=%s "
             "assistant_message_id=%s "
             "reply_chars=%d",
             USER_ID,
             elapsed,
             len(memories),
-            memory_created,
             user_message_id,
             assistant_message_id,
             len(reply),
@@ -1050,7 +1125,8 @@ async def chat(
             "reply": reply,
             "user_id": USER_ID,
             "memories_used": memories,
-            "memory_created": memory_created,
+            "memory_created": None,
+            "memory_evaluation": "queued",
             "user_message_id": user_message_id,
             "assistant_message_id": assistant_message_id,
         }
