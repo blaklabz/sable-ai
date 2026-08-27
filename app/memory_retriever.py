@@ -33,6 +33,7 @@ def embed_text(text: str) -> list[float]:
 
     return [float(value) for value in embedding]
 
+
 def normalize_query(query: str) -> str:
     cleaned = query.strip()
 
@@ -57,7 +58,69 @@ def normalize_query(query: str) -> str:
 
     return cleaned
 
-def retrieve_memories(
+
+def detect_requested_memory_type(query: str) -> str | None:
+    lowered = query.lower()
+
+    if any(
+        phrase in lowered
+        for phrase in (
+            "haiku",
+            "haikus",
+            "poem",
+            "poems",
+        )
+    ):
+        return "haiku"
+
+    return None
+
+
+def retrieve_memories_by_type(
+    memory_type: str,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    sql = """
+        SELECT
+            id,
+            memory_type,
+            summary,
+            importance,
+            confidence,
+            created_at
+        FROM memories
+        WHERE status = 'active'
+          AND memory_type = %s
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    memory_type,
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "memory_type": row[1],
+            "summary": row[2],
+            "importance": row[3],
+            "confidence": row[4],
+            "created_at": row[5],
+            "similarity": None,
+        }
+        for row in rows
+    ]
+
+
+def retrieve_semantic_memories(
     query: str,
     limit: int = 3,
     min_similarity: float = 0.55,
@@ -110,3 +173,35 @@ def retrieve_memories(
         for memory in memories
         if memory["similarity"] >= min_similarity
     ]
+
+
+def retrieve_memories(
+    query: str,
+    limit: int = 3,
+    min_similarity: float = 0.55,
+) -> list[dict[str, Any]]:
+    memories: list[dict[str, Any]] = []
+
+    requested_type = detect_requested_memory_type(query)
+
+    if requested_type:
+        typed_memories = retrieve_memories_by_type(
+            requested_type,
+            limit=5,
+        )
+        memories.extend(typed_memories)
+
+    semantic_memories = retrieve_semantic_memories(
+        query,
+        limit=limit,
+        min_similarity=min_similarity,
+    )
+
+    seen_ids = {memory["id"] for memory in memories}
+
+    for memory in semantic_memories:
+        if memory["id"] not in seen_ids:
+            memories.append(memory)
+            seen_ids.add(memory["id"])
+
+    return memories
