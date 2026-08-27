@@ -107,30 +107,55 @@
         addMessage("user", message);
         input.value = "";
 
-        const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                message: message,
-                history: history
-            })
-        });
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    message: message,
+                    history: history
+                })
+            });
 
-        const data = await response.json();
+            if (!response.ok) {
+                throw new Error(
+                    `HTTP ${response.status}: ${response.statusText}`
+                );
+            }
 
-        addMessage("sable", data.reply);
+            const data = await response.json();
 
-        history.push({
-            role: "user",
-            content: message
-        });
+            if (!data.reply) {
+                throw new Error(
+                    "Server returned no reply"
+                );
+            }
 
-        history.push({
-            role: "assistant",
-            content: data.reply
-        });
+            addMessage("sable", data.reply);
+
+            history.push({
+                role: "user",
+                content: message
+            });
+
+            history.push({
+                role: "assistant",
+                content: data.reply
+            });
+
+        } catch (error) {
+            console.error(
+                "Chat request failed:",
+                error
+            );
+
+            addMessage(
+                "sable",
+                `[Chat request failed: ${error.message}]`
+            );
+        }
     }
 </script>
 
