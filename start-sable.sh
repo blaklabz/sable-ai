@@ -18,7 +18,7 @@ cd "$LLAMA_DIR"
     -hf Qwen/Qwen3-14B-GGUF:Q4_K_M \
     -ngl 99 \
     -c 16384 \
-    --reasoning-budget 768 \
+    --reasoning-budget 0 \
     --host 127.0.0.1 \
     --port 8080 \
     > "$SABLE_DIR/llama-server.log" 2>&1 &
