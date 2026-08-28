@@ -452,7 +452,7 @@ async def gather_homework_context() -> dict:
             )
 
             return {
-                "recent_prompts": retrieve_recent_conversation(
+                "recent_conversation": retrieve_recent_conversation(
                     conn
                 ),
                 "recent_memories": retrieve_recent_memories(
