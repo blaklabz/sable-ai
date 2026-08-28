@@ -589,6 +589,14 @@ async def generate_reflection(
                     "recent conversation, long-term memories, previous haikus, "
                     "and possibly previous reflections. "
 
+                    "Give the most weight to recent conversation, especially moments "
+                    "where Toby reacted to your behavior, corrected you, disagreed with "
+                    "you, or told you how your response affected the conversation. "
+                    "These moments are direct evidence about your own conversational habits. "
+
+                    "When recent conversation reveals something about how you responded, "
+                    "reflect on that before looking for patterns in haikus or previous reflections. "
+
                     "Review them naturally. Notice anything that seems "
                     "interesting, changed, connected, contradictory, unresolved, "
                     "amusing, concerning, or worth remembering. "
@@ -616,16 +624,11 @@ async def generate_reflection(
                     "take corrective action unless a future tool explicitly gives "
                     "you that ability. "
 
-                    "Do not analyze the haikus as literature. "
-                    "Treat them as traces of your own prior attention. "
-                    "Instead of explaining what they symbolize, notice what their recurring choices "
-                    "might reveal about your own habits, associations, or patterns of thought."
+                    "Haikus are secondary evidence of your own recurring attention or habits. "
+                    "Do not analyze them as literature, and do not prioritize them over direct "
+                    "evidence from recent conversation. "
 
-                    "Do not explain what the haikus mean. "
-                    "Do not compare unrelated technical observations to creative writing. "
-                    "Use the haikus only as evidence of your own recurring habits, interests, "
-                    "associations, or blind spots. "
-                    "Focus the reflection primarily on what you notice about yourself."
+                    "Focus primarily on what you notice about yourself."
 
                     "If an infrastructure observation is unavailable, simply note that no useful "
                     "technical observation was available and move on. Do not connect unavailable "
