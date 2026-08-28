@@ -294,7 +294,17 @@ def build_memory_context(
         ),
     ]
 
-    for memory in memories:
+    all_haikus = all(
+        memory.get("memory_type") == "haiku"
+        for memory in memories
+    )
+
+    if all_haikus:
+        lines.append(
+            "These haikus are ordered newest to oldest."
+        )
+
+    for index, memory in enumerate(memories):
         memory_logger.info(
             "Injecting memory "
             "id=%s type=%s similarity=%s "
@@ -311,16 +321,34 @@ def build_memory_context(
             or "unknown"
         )
 
-        lines.append(
-            f"- [{memory_type}] "
-            f"{memory['summary']}"
-        )
+        if all_haikus:
+            if index == 0:
+                label = "Most recent haiku"
+            elif index == 1:
+                label = "Previous haiku"
+            else:
+                label = f"Earlier haiku {index}"
 
-    memory_context = (
-        "\n".join(
-            lines
-        )
-    )
+            created_at = memory.get("created_at")
+
+            if created_at:
+                lines.append(
+                    f"\n### {label}\n"
+                    f"Written: {created_at}\n"
+                    f"{memory['summary']}"
+                )
+            else:
+                lines.append(
+                    f"\n### {label}\n"
+                    f"{memory['summary']}"
+                )
+        else:
+            lines.append(
+                f"- [{memory_type}] "
+                f"{memory['summary']}"
+            )
+
+    memory_context = "\n".join(lines)
 
     memory_logger.info(
         "Memory context built "

@@ -180,28 +180,16 @@ def retrieve_memories(
     limit: int = 3,
     min_similarity: float = 0.55,
 ) -> list[dict[str, Any]]:
-    memories: list[dict[str, Any]] = []
-
     requested_type = detect_requested_memory_type(query)
 
     if requested_type:
-        typed_memories = retrieve_memories_by_type(
+        return retrieve_memories_by_type(
             requested_type,
             limit=5,
         )
-        memories.extend(typed_memories)
 
-    semantic_memories = retrieve_semantic_memories(
+    return retrieve_semantic_memories(
         query,
         limit=limit,
         min_similarity=min_similarity,
     )
-
-    seen_ids = {memory["id"] for memory in memories}
-
-    for memory in semantic_memories:
-        if memory["id"] not in seen_ids:
-            memories.append(memory)
-            seen_ids.add(memory["id"])
-
-    return memories
