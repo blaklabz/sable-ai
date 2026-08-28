@@ -675,7 +675,7 @@ async def generate_reflection(
 
     started = time.perf_counter()
 
-    haiku_logger.info(
+    homework_logger.info(
         "Nightly homework reflection started"
     )
 
@@ -706,7 +706,7 @@ async def generate_reflection(
             1,
         )[1].strip()
 
-    haiku_logger.info(
+    homework_logger.info(
         "Nightly homework generated elapsed=%.3fs output=%r",
         elapsed,
         content,
@@ -809,7 +809,7 @@ async def save_homework_reflection(
         _save
     )
 
-    haiku_logger.info(
+    homework_logger.info(
         "Homework reflection saved to journal"
     )
 
@@ -845,7 +845,7 @@ async def main():
             context
         )
 
-        haiku_logger.info(
+        homework_logger.info(
             "Nightly homework context:\n%s",
             context_text,
         )
@@ -911,7 +911,7 @@ async def main():
             print()
 
     except Exception:
-        haiku_logger.exception(
+        homework_logger.exception(
             "Nightly homework failed"
         )
         raise
