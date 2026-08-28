@@ -594,6 +594,14 @@ async def generate_reflection(
                     "you, or told you how your response affected the conversation. "
                     "These moments are direct evidence about your own conversational habits. "
 
+                    "When Toby directly corrects or comments on something you just did, "
+                    "treat that as especially strong evidence about your behavior. "
+                    "Examine the response that prompted the correction rather than assuming "
+                    "your attempted adjustment was successful. "
+
+                    "Do not describe an improvement merely because you intended to improve. "
+                    "Distinguish between what you tried to do and what your actual response demonstrated. "
+
                     "When recent conversation reveals something about how you responded, "
                     "reflect on that before looking for patterns in haikus or previous reflections. "
 
