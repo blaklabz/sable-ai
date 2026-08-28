@@ -7,7 +7,7 @@ import httpx
 import psycopg
 from dotenv import load_dotenv
 
-from app.logging_config import setup_logging, haiku_logger
+from app.logging_config import setup_logging, homework_logger
 
 
 load_dotenv()
@@ -150,7 +150,7 @@ async def observe_lab() -> list[dict]:
 # Recent conversation retrieval
 # ---------------------------------------------------------------------
 
-def retrieve_recent_prompts(
+def retrieve_recent_conversation(
     conn,
 ) -> list[str]:
     columns = get_table_columns(
@@ -159,8 +159,8 @@ def retrieve_recent_prompts(
     )
 
     if not columns:
-        haiku_logger.warning(
-            "messages table not found; skipping recent prompts"
+        homework_logger.warning(
+            "messages table not found; skipping recent conversation"
         )
         return []
 
@@ -177,7 +177,7 @@ def retrieve_recent_prompts(
             break
 
     if not content_column:
-        haiku_logger.warning(
+        homework_logger.warning(
             "Could not identify message content column"
         )
         return []
@@ -208,12 +208,6 @@ def retrieve_recent_prompts(
         )
         params.append(USER_ID)
 
-    if role_column:
-        where_parts.append(
-            f"{role_column} = %s"
-        )
-        params.append("user")
-
     where_clause = ""
 
     if where_parts:
@@ -222,13 +216,22 @@ def retrieve_recent_prompts(
             + " AND ".join(where_parts)
         )
 
-    query = f"""
-        SELECT {content_column}
-        FROM messages
-        {where_clause}
-        ORDER BY {order_column} DESC
-        LIMIT %s
-    """
+    if role_column:
+        query = f"""
+            SELECT {role_column}, {content_column}
+            FROM messages
+            {where_clause}
+            ORDER BY {order_column} DESC
+            LIMIT %s
+        """
+    else:
+        query = f"""
+            SELECT {content_column}
+            FROM messages
+            {where_clause}
+            ORDER BY {order_column} DESC
+            LIMIT %s
+        """
 
     params.append(
         RECENT_PROMPT_LIMIT
@@ -242,15 +245,33 @@ def retrieve_recent_prompts(
 
         rows = cur.fetchall()
 
-    prompts = [
-        row[0].strip()
-        for row in rows
-        if row[0] and row[0].strip()
-    ]
+    conversation = []
 
-    prompts.reverse()
+    for row in rows:
+        if role_column:
+            role = row[0]
+            content = row[1]
+        else:
+            role = "unknown"
+            content = row[0]
 
-    return prompts
+        if not content or not content.strip():
+            continue
+
+        if role == "user":
+            speaker = "Toby"
+        elif role == "assistant":
+            speaker = "Sable"
+        else:
+            speaker = role
+
+        conversation.append(
+            f"{speaker}: {content.strip()}"
+        )
+
+    conversation.reverse()
+
+    return conversation
 
 
 # ---------------------------------------------------------------------
@@ -431,7 +452,7 @@ async def gather_homework_context() -> dict:
             )
 
             return {
-                "recent_prompts": retrieve_recent_prompts(
+                "recent_prompts": retrieve_recent_conversation(
                     conn
                 ),
                 "recent_memories": retrieve_recent_memories(
@@ -479,20 +500,15 @@ def format_homework_context(
             + "\n".join(lines)
         )
 
-    prompts = context.get(
-        "recent_prompts",
+    conversation = context.get(
+        "recent_conversation",
         [],
     )
 
-    if prompts:
-        lines = [
-            f"- {prompt}"
-            for prompt in prompts
-        ]
-
+    if conversation:
         sections.append(
-            "RECENT CONVERSATION PROMPTS\n"
-            + "\n".join(lines)
+            "RECENT CONVERSATION\n"
+            + "\n\n".join(conversation)
         )
 
     memories = context.get(
