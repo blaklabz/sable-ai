@@ -162,8 +162,10 @@ def clean_llm_reply(
     content: str,
 ) -> str:
     """
-    Remove Qwen reasoning blocks from the visible reply before returning
-    it to the UI or saving it into conversation history.
+    Remove Qwen reasoning blocks from the generated response.
+
+    Reflection blocks are handled separately so they can be extracted
+    and stored before the visible response is returned to Toby.
     """
 
     content = content.strip()
@@ -185,6 +187,109 @@ def clean_llm_reply(
         )
 
     return content
+
+
+def extract_reflection(
+    content: str,
+) -> tuple[str, dict | None]:
+    """
+    Extract an optional private reflection block from Sable's response.
+
+    Expected format:
+
+    <reflection>
+    {
+      "save": true,
+      "summary": "...",
+      "importance": 7
+    }
+    </reflection>
+
+    The reflection block is removed from the visible response regardless
+    of whether its JSON is valid. Invalid reflections are logged and
+    discarded rather than exposed to Toby.
+    """
+
+    opening_tag = "<reflection>"
+    closing_tag = "</reflection>"
+
+    if opening_tag not in content:
+        return content.strip(), None
+
+    before, remainder = content.split(
+        opening_tag,
+        1,
+    )
+
+    if closing_tag not in remainder:
+        memory_logger.warning(
+            "Sable response contained unfinished reflection block"
+        )
+
+        # Never expose a partial private reflection.
+        return before.strip(), None
+
+    reflection_text, after = remainder.split(
+        closing_tag,
+        1,
+    )
+
+    visible_content = (
+        before + after
+    ).strip()
+
+    reflection_text = (
+        reflection_text.strip()
+    )
+
+    if reflection_text.startswith("```"):
+        reflection_text = (
+            reflection_text
+            .strip("`")
+            .strip()
+        )
+
+        if reflection_text.lower().startswith(
+            "json"
+        ):
+            reflection_text = (
+                reflection_text[4:]
+                .strip()
+            )
+
+    try:
+        reflection = json.loads(
+            reflection_text
+        )
+
+    except json.JSONDecodeError:
+        memory_logger.warning(
+            "Invalid Sable reflection JSON content=%r",
+            reflection_text,
+        )
+
+        return visible_content, None
+
+    if not isinstance(
+        reflection,
+        dict,
+    ):
+        memory_logger.warning(
+            "Sable reflection was not a JSON object"
+        )
+
+        return visible_content, None
+
+    if not reflection.get(
+        "save"
+    ):
+        memory_logger.info(
+            "Sable reflection declined save"
+        )
+
+        return visible_content, None
+
+    return visible_content, reflection
 
 
 # ---------------------------------------------------------------------
@@ -789,6 +894,72 @@ def save_extracted_memory(
     return memory_id
 
 
+def save_sable_reflection(
+    reflection: dict,
+) -> int | None:
+    """
+    Convert a reflection chosen by Sable into a normal long-term
+    self-memory and store it using the existing memory pipeline.
+    """
+
+    summary = (
+        reflection.get(
+            "summary",
+            "",
+        )
+        .strip()
+    )
+
+    if not summary:
+        memory_logger.warning(
+            "Skipping empty Sable reflection"
+        )
+        return None
+
+    try:
+        importance = int(
+            reflection.get(
+                "importance",
+                5,
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        importance = 5
+
+    importance = max(
+        1,
+        min(
+            10,
+            importance,
+        ),
+    )
+
+    memory_logger.info(
+        "Sable chose to preserve reflection "
+        "importance=%d summary=%r",
+        importance,
+        summary,
+    )
+
+    memory = {
+        "memory_type": "self",
+        "subject": "Sable",
+        "predicate": "reflection",
+        "object_text": None,
+        "summary": summary,
+        "importance": importance,
+        "confidence": 1.0,
+    }
+
+    return save_extracted_memory(
+        memory
+    )
+
+
 # ---------------------------------------------------------------------
 # Background memory processing
 # ---------------------------------------------------------------------
@@ -1070,8 +1241,18 @@ async def chat(
             raw_reply,
         )
 
-        reply = clean_llm_reply(
+        # -------------------------------------------------------------
+        # Remove reasoning and extract any private reflection.
+        # -------------------------------------------------------------
+
+        cleaned_reply = clean_llm_reply(
             raw_reply
+        )
+
+        reply, reflection = (
+            extract_reflection(
+                cleaned_reply
+            )
         )
 
         api_logger.info(
@@ -1086,7 +1267,8 @@ async def chat(
             "completion_tokens=%s "
             "total_tokens=%s "
             "raw_reply_chars=%d "
-            "visible_reply_chars=%d",
+            "visible_reply_chars=%d "
+            "reflection_present=%s",
             llm_elapsed,
             usage.get(
                 "prompt_tokens"
@@ -1099,10 +1281,14 @@ async def chat(
             ),
             len(raw_reply),
             len(reply),
+            reflection is not None,
         )
 
         # -------------------------------------------------------------
         # Persist only Sable's visible response.
+        #
+        # Think blocks and reflection blocks are never stored as visible
+        # conversation history.
         # -------------------------------------------------------------
 
         assistant_message_id = (
@@ -1114,7 +1300,29 @@ async def chat(
         )
 
         # -------------------------------------------------------------
-        # Queue durable-memory evaluation.
+        # Save a reflection if Sable deliberately created one.
+        #
+        # This is separate from Toby's background memory evaluator.
+        # Sable's own reflection is stored as a self-memory.
+        # -------------------------------------------------------------
+
+        reflection_memory_id = None
+
+        if reflection:
+            try:
+                reflection_memory_id = (
+                    save_sable_reflection(
+                        reflection
+                    )
+                )
+
+            except Exception:
+                memory_logger.exception(
+                    "Failed saving Sable reflection"
+                )
+
+        # -------------------------------------------------------------
+        # Queue durable-memory evaluation of Toby's message.
         #
         # This deliberately happens AFTER Sable's response has been
         # generated and saved. FastAPI runs the task after sending the
@@ -1138,12 +1346,14 @@ async def chat(
             "elapsed=%.3fs "
             "memories_used=%d "
             "memory_evaluation=queued "
+            "reflection_memory_id=%s "
             "user_message_id=%s "
             "assistant_message_id=%s "
             "reply_chars=%d",
             USER_ID,
             elapsed,
             len(memories),
+            reflection_memory_id,
             user_message_id,
             assistant_message_id,
             len(reply),
@@ -1155,6 +1365,7 @@ async def chat(
             "memories_used": memories,
             "memory_created": None,
             "memory_evaluation": "queued",
+            "reflection_memory_id": reflection_memory_id,
             "user_message_id": user_message_id,
             "assistant_message_id": assistant_message_id,
         }
